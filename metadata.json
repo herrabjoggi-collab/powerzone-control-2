@@ -1,0 +1,8 @@
+{
+  "name": "PowerZone Control",
+  "description": "Offline-ready 8-zone volume and mute controller for dual Sonance PowerZone Connect 504 amplifiers.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
