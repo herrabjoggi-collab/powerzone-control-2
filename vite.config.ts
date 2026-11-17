@@ -81,6 +81,13 @@ export default defineConfig(() => {
             `const PRECACHE_ASSETS = ${JSON.stringify(files, null, 2)};`
           );
           fs.writeFileSync(swPath, swSource, 'utf8');
+          fs.writeFileSync(path.join(distDir, '.nojekyll'), '', 'utf8');
+
+          // Mirror compiled production bundle into /docs so GitHub Pages can deploy
+          // directly from the /docs folder on the main branch without needing a CI build.
+          const docsDir = path.resolve(__dirname, 'docs');
+          fs.rmSync(docsDir, {recursive: true, force: true});
+          fs.cpSync(distDir, docsDir, {recursive: true, force: true});
         },
       },
     ],
