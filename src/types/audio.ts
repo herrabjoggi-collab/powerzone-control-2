@@ -55,6 +55,7 @@ export interface LinkGroup {
 export interface AppPreferences {
   unitMode: VolumeUnit;
   autoReconnect: boolean;
+  offlineSimulation: boolean;
 }
 
 export interface PersistedAudioState {

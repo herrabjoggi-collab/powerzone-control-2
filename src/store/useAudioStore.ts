@@ -76,6 +76,7 @@ function createDefaultPersistedState(): PersistedAudioState {
     preferences: {
       unitMode: 'db',
       autoReconnect: true,
+      offlineSimulation: false,
     },
   };
 }
@@ -165,6 +166,10 @@ function loadPersistedState(): PersistedAudioState {
           parsed.preferences?.autoReconnect !== undefined
             ? Boolean(parsed.preferences.autoReconnect)
             : true,
+        offlineSimulation:
+          parsed.preferences?.offlineSimulation !== undefined
+            ? Boolean(parsed.preferences.offlineSimulation)
+            : false,
       },
     };
   } catch {
@@ -205,10 +210,14 @@ export function useAudioStore() {
   const [preferences, setPreferences] = useState<AppPreferences>(() => initial.current!.preferences);
   const [notice, setNotice] = useState<NoticeMessage | null>(null);
 
+  const ampsRef = useRef(amps);
+  ampsRef.current = amps;
   const zonesRef = useRef(zones);
   zonesRef.current = zones;
   const linkGroupsRef = useRef(linkGroups);
   linkGroupsRef.current = linkGroups;
+  const preferencesRef = useRef(preferences);
+  preferencesRef.current = preferences;
   const dragSnapshotRef = useRef<DragSnapshot | null>(null);
   const clientsRef = useRef<Record<AmpId, SonanceAmpClient> | null>(null);
   const noticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -451,6 +460,32 @@ export function useAudioStore() {
       const target = currentZones.find((z) => z.id === zoneId);
       if (!target) return;
 
+      const isSimAllowed = preferencesRef.current.offlineSimulation;
+      const isAmpConnected = (ampId: AmpId) =>
+        ampsRef.current[ampId].connectionStatus === 'connected';
+
+      const activeGroup = target.linkGroupId
+        ? linkGroupsRef.current.find((g) => g.id === target.linkGroupId && g.enabled)
+        : null;
+
+      // Determine if the target zone (or all zones in an active group) are disconnected while simulation is disabled
+      const groupMembers = activeGroup
+        ? currentZones.filter((z) => z.linkGroupId === activeGroup.id)
+        : [target];
+      const anyMemberControllable =
+        isSimAllowed || groupMembers.some((z) => isAmpConnected(z.ampId));
+
+      if (!anyMemberControllable) {
+        const ampLabel =
+          ampsRef.current[target.ampId].label ||
+          (target.ampId === 'amp1' ? 'Amplifier 1' : 'Amplifier 2');
+        pushNotice(
+          `${ampLabel} is disconnected. Reconnect or enable Offline Simulation in Setup.`,
+          'warning'
+        );
+        return;
+      }
+
       if (target.gpioVcLocked !== 0) {
         pushNotice(
           `${target.name} volume is locked by hardware GPIO VC ${target.gpioVcLocked}.`,
@@ -467,13 +502,10 @@ export function useAudioStore() {
 
       const updatedZonesToDispatch: ZoneState[] = [];
 
-      const activeGroup = target.linkGroupId
-        ? linkGroupsRef.current.find((g) => g.id === target.linkGroupId && g.enabled)
-        : null;
-
       setZones((prev) =>
         prev.map((z) => {
           if (z.id === zoneId) {
+            if (!isSimAllowed && !isAmpConnected(z.ampId)) return z;
             const nextZone = { ...z, gainDb: clampedTarget };
             updatedZonesToDispatch.push(nextZone);
             return nextZone;
@@ -481,6 +513,7 @@ export function useAudioStore() {
 
           if (activeGroup && z.linkGroupId === activeGroup.id) {
             if (z.gpioVcLocked !== 0) return z;
+            if (!isSimAllowed && !isAmpConnected(z.ampId)) return z;
             const startVal = snapshot?.memberStartGains[z.id] ?? z.gainDb;
             const nextVal = clamp(roundToHalfDb(startVal + delta), z.gainMin, z.gainMax);
             const nextZone = { ...z, gainDb: nextVal };
@@ -508,17 +541,39 @@ export function useAudioStore() {
       const target = currentZones.find((z) => z.id === zoneId);
       if (!target) return;
 
+      const isSimAllowed = preferencesRef.current.offlineSimulation;
+      const isAmpConnected = (ampId: AmpId) =>
+        ampsRef.current[ampId].connectionStatus === 'connected';
+
+      const group = target.linkGroupId
+        ? linkGroupsRef.current.find((g) => g.id === target.linkGroupId && g.enabled)
+        : null;
+      const propagateMute = Boolean(group && group.linkMute);
+
+      const groupMembers =
+        propagateMute && group
+          ? currentZones.filter((z) => z.linkGroupId === group.id)
+          : [target];
+      const anyMemberControllable =
+        isSimAllowed || groupMembers.some((z) => isAmpConnected(z.ampId));
+
+      if (!anyMemberControllable) {
+        const ampLabel =
+          ampsRef.current[target.ampId].label ||
+          (target.ampId === 'amp1' ? 'Amplifier 1' : 'Amplifier 2');
+        pushNotice(
+          `${ampLabel} is disconnected. Reconnect or enable Offline Simulation in Setup.`,
+          'warning'
+        );
+        return;
+      }
+
       if (!target.muteEnabled) {
         pushNotice(`Mute is disabled in hardware for ${target.name}.`, 'warning');
         return;
       }
 
       const nextMuted = !target.muted;
-      const group = target.linkGroupId
-        ? linkGroupsRef.current.find((g) => g.id === target.linkGroupId && g.enabled)
-        : null;
-      const propagateMute = Boolean(group && group.linkMute);
-
       const affected: ZoneState[] = [];
 
       setZones((prev) =>
@@ -527,6 +582,7 @@ export function useAudioStore() {
             z.id === zoneId ||
             (propagateMute && z.linkGroupId === target.linkGroupId && z.muteEnabled);
           if (!isMatch) return z;
+          if (!isSimAllowed && !isAmpConnected(z.ampId)) return z;
           const next = { ...z, muted: nextMuted };
           affected.push(next);
           return next;
@@ -773,6 +829,21 @@ export function useAudioStore() {
     setPreferences((prev) => ({ ...prev, autoReconnect }));
   }, []);
 
+  const setOfflineSimulation = useCallback((offlineSimulation: boolean) => {
+    setPreferences((prev) => ({ ...prev, offlineSimulation }));
+  }, []);
+
+  const reconnectAllAmps = useCallback(() => {
+    const clients = clientsRef.current;
+    if (!clients) return;
+    if (ampsRef.current.amp1.connectionStatus !== 'connected') {
+      clients.amp1.connect(ampsRef.current.amp1.ip, ampsRef.current.amp1.wsUrlOverride);
+    }
+    if (ampsRef.current.amp2.connectionStatus !== 'connected') {
+      clients.amp2.connect(ampsRef.current.amp2.ip, ampsRef.current.amp2.wsUrlOverride);
+    }
+  }, []);
+
   const resetToDefaults = useCallback(() => {
     const def = createDefaultPersistedState();
     setAmps({
@@ -820,6 +891,7 @@ export function useAudioStore() {
     updateAmpConfig,
     connectAmp,
     disconnectAmp,
+    reconnectAllAmps,
     pingAmp,
     pullAmp,
     setAmpPower,
@@ -832,6 +904,7 @@ export function useAudioStore() {
     deleteLinkGroup,
     setUnitMode,
     setAutoReconnect,
+    setOfflineSimulation,
     resetToDefaults,
   };
 }

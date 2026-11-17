@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { RefreshCw, WifiOff, X } from 'lucide-react';
+import { RefreshCw, Wifi, WifiOff, X } from 'lucide-react';
 import { SetupView } from './components/SetupView';
 import { ZoneFaderRow } from './components/ZoneFaderRow';
 import { useServiceWorker } from './hooks/useServiceWorker';
@@ -25,6 +25,7 @@ export default function App() {
     updateAmpConfig,
     connectAmp,
     disconnectAmp,
+    reconnectAllAmps,
     pingAmp,
     pullAmp,
     setAmpPower,
@@ -37,6 +38,7 @@ export default function App() {
     deleteLinkGroup,
     setUnitMode,
     setAutoReconnect,
+    setOfflineSimulation,
     resetToDefaults,
   } = useAudioStore();
 
@@ -68,6 +70,13 @@ export default function App() {
     });
   })();
 
+  const amp1Connected = amps.amp1.connectionStatus === 'connected';
+  const amp2Connected = amps.amp2.connectionStatus === 'connected';
+  const anyAmpConnecting =
+    amps.amp1.connectionStatus === 'connecting' ||
+    amps.amp2.connectionStatus === 'connecting';
+  const allAmpsConnected = amp1Connected && amp2Connected;
+
   return (
     <div className="min-h-[100dvh] bg-[#0B0D10] text-slate-100 flex flex-col">
       {/* Compact Sticky Top Bar (< 15% mobile height, iOS safe-area aware) */}
@@ -78,15 +87,43 @@ export default function App() {
           </span>
 
           <div className="flex items-center gap-2.5 shrink-0">
-            {!isOnline && (
-              <span
-                title="Offline Mode"
-                className="inline-flex items-center gap-1 text-xs text-amber-400 whitespace-nowrap shrink-0"
-              >
-                <WifiOff className="w-3.5 h-3.5" aria-hidden="true" />
-                <span className="hidden sm:inline">Offline</span>
-              </span>
-            )}
+            {/* Live Amplifier Connection Indicator in Header */}
+            <button
+              type="button"
+              onClick={() => setActiveTab('setup')}
+              title="Amplifier connection status — tap to configure in Setup"
+              className="inline-flex items-center gap-1.5 text-xs font-medium whitespace-nowrap shrink-0 px-2 py-1 rounded-lg hover:bg-white/[0.05] transition-colors"
+            >
+              {allAmpsConnected ? (
+                <>
+                  <Wifi className="w-3.5 h-3.5 text-emerald-400" aria-hidden="true" />
+                  <span className="text-emerald-400">2/2 Live</span>
+                </>
+              ) : amp1Connected || amp2Connected ? (
+                <>
+                  <Wifi className="w-3.5 h-3.5 text-amber-400" aria-hidden="true" />
+                  <span className="text-amber-400">1/2 Live</span>
+                </>
+              ) : anyAmpConnecting ? (
+                <>
+                  <RefreshCw
+                    className="w-3.5 h-3.5 text-sky-400 animate-spin"
+                    aria-hidden="true"
+                  />
+                  <span className="text-sky-400">Connecting</span>
+                </>
+              ) : preferences.offlineSimulation ? (
+                <>
+                  <WifiOff className="w-3.5 h-3.5 text-amber-400" aria-hidden="true" />
+                  <span className="text-amber-400">Sim Mode</span>
+                </>
+              ) : (
+                <>
+                  <WifiOff className="w-3.5 h-3.5 text-rose-400" aria-hidden="true" />
+                  <span className="text-rose-400">Disconnected</span>
+                </>
+              )}
+            </button>
 
             {updateAvailable && (
               <button
@@ -160,19 +197,91 @@ export default function App() {
       {/* Main Content Area */}
       <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-3 sm:py-5 pb-[max(1rem,env(safe-area-inset-bottom))]">
         {activeTab === 'zones' ? (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 lg:gap-4">
-            {visibleZones.map((zone) => (
-              <ZoneFaderRow
-                key={zone.id}
-                zone={zone}
-                linkGroup={zone.linkGroupId ? groupMap.get(zone.linkGroupId) ?? null : null}
-                unitMode={preferences.unitMode}
-                onBeginDrag={beginGainDrag}
-                onChangeGain={setZoneGain}
-                onEndDrag={endGainDrag}
-                onToggleMute={toggleZoneMute}
-              />
-            ))}
+          <div className="space-y-3">
+            {/* Connection / Disconnected Status Strip when not both live */}
+            {!allAmpsConnected && (
+              <div
+                className={`rounded-xl border px-3.5 py-2.5 flex flex-wrap items-center justify-between gap-3 text-xs ${
+                  preferences.offlineSimulation
+                    ? 'bg-amber-500/10 border-amber-500/30 text-amber-200'
+                    : 'bg-rose-500/10 border-rose-500/30 text-rose-200'
+                }`}
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  <WifiOff className="w-4 h-4 shrink-0" aria-hidden="true" />
+                  <span className="leading-snug">
+                    {!amp1Connected && !amp2Connected
+                      ? preferences.offlineSimulation
+                        ? 'Offline Simulation Active — Amplifiers are not connected (changes are local only).'
+                        : 'Amplifiers Disconnected — Faders are locked until connected.'
+                      : !amp1Connected
+                        ? `${amps.amp1.label || 'Amplifier 1'} Disconnected${
+                            preferences.offlineSimulation ? ' (Sim Mode)' : ' — Zones 1–4 locked'
+                          }.`
+                        : `${amps.amp2.label || 'Amplifier 2'} Disconnected${
+                            preferences.offlineSimulation ? ' (Sim Mode)' : ' — Zones 5–8 locked'
+                          }.`}
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={reconnectAllAmps}
+                    className="min-h-[34px] px-3 rounded-lg bg-[#14181F] border border-white/15 hover:border-white/30 text-slate-100 font-medium transition-colors whitespace-nowrap"
+                  >
+                    Reconnect
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setOfflineSimulation(!preferences.offlineSimulation)}
+                    className="min-h-[34px] px-3 rounded-lg bg-[#14181F] border border-white/15 hover:border-white/30 text-slate-200 font-medium transition-colors whitespace-nowrap"
+                  >
+                    {preferences.offlineSimulation ? 'Disable Sim' : 'Enable Sim'}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 lg:gap-4">
+              {visibleZones.map((zone) => {
+                const activeGroup = zone.linkGroupId
+                  ? groupMap.get(zone.linkGroupId) ?? null
+                  : null;
+                const isConsolidated = Boolean(
+                  activeGroup && activeGroup.enabled && activeGroup.zoneIds.length >= 2
+                );
+                const memberZones =
+                  isConsolidated && activeGroup
+                    ? zones.filter((z) => z.linkGroupId === activeGroup.id)
+                    : [zone];
+
+                const anyConnected = memberZones.some(
+                  (z) => amps[z.ampId].connectionStatus === 'connected'
+                );
+                const allConnected = memberZones.every(
+                  (z) => amps[z.ampId].connectionStatus === 'connected'
+                );
+                const isDisconnectedLocked =
+                  !preferences.offlineSimulation && !anyConnected;
+                const isSimulated = preferences.offlineSimulation && !allConnected;
+
+                return (
+                  <ZoneFaderRow
+                    key={zone.id}
+                    zone={zone}
+                    linkGroup={activeGroup}
+                    unitMode={preferences.unitMode}
+                    isDisconnectedLocked={isDisconnectedLocked}
+                    isSimulated={isSimulated}
+                    onBeginDrag={beginGainDrag}
+                    onChangeGain={setZoneGain}
+                    onEndDrag={endGainDrag}
+                    onToggleMute={toggleZoneMute}
+                  />
+                );
+              })}
+            </div>
           </div>
         ) : (
           <SetupView
@@ -202,6 +311,7 @@ export default function App() {
             onDeleteLinkGroup={deleteLinkGroup}
             onSetUnitMode={setUnitMode}
             onSetAutoReconnect={setAutoReconnect}
+            onSetOfflineSimulation={setOfflineSimulation}
             onCheckForUpdate={checkForUpdate}
             onApplyUpdate={applyUpdate}
             onResetDefaults={resetToDefaults}

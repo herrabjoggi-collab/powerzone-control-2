@@ -1,10 +1,10 @@
-const CACHE_VERSION = '3028259e914b';
+const CACHE_VERSION = 'a2da5c3979cf';
 const IS_DEV = CACHE_VERSION.startsWith('pz-dev');
 const CACHE_NAME = `powerzone-shell-${CACHE_VERSION}`;
 const PRECACHE_ASSETS = [
   "./",
-  "./assets/index-B20SaBLK.css",
-  "./assets/index-DJLAEdnP.js",
+  "./assets/index-BR8B16lV.css",
+  "./assets/index-DKhPghTC.js",
   "./icons/apple-touch-icon.png",
   "./icons/icon.svg",
   "./icons/pwa-192x192.png",

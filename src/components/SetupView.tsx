@@ -60,6 +60,7 @@ interface SetupViewProps {
   onDeleteLinkGroup: (groupId: string) => void;
   onSetUnitMode: (unit: VolumeUnit) => void;
   onSetAutoReconnect: (enabled: boolean) => void;
+  onSetOfflineSimulation: (enabled: boolean) => void;
   onCheckForUpdate: () => Promise<void>;
   onApplyUpdate: () => void;
   onResetDefaults: () => void;
@@ -92,6 +93,7 @@ export const SetupView: React.FC<SetupViewProps> = ({
   onDeleteLinkGroup,
   onSetUnitMode,
   onSetAutoReconnect,
+  onSetOfflineSimulation,
   onCheckForUpdate,
   onApplyUpdate,
   onResetDefaults,
@@ -432,6 +434,21 @@ export const SetupView: React.FC<SetupViewProps> = ({
 
             <label className="flex items-center justify-between gap-3 min-h-[44px] cursor-pointer">
               <div>
+                <p className="text-sm font-medium text-slate-100">Offline Simulation Mode</p>
+                <p className="text-xs text-slate-400">
+                  Allow testing faders locally when amplifiers are disconnected
+                </p>
+              </div>
+              <input
+                type="checkbox"
+                checked={preferences.offlineSimulation}
+                onChange={(e) => onSetOfflineSimulation(e.target.checked)}
+                className="w-5 h-5 rounded accent-sky-500 shrink-0"
+              />
+            </label>
+
+            <label className="flex items-center justify-between gap-3 min-h-[44px] cursor-pointer">
+              <div>
                 <p className="text-sm font-medium text-slate-100">Auto-Reconnect Amplifiers</p>
                 <p className="text-xs text-slate-400">
                   Retry unreachable IPs automatically in background
@@ -614,8 +631,21 @@ export const SetupView: React.FC<SetupViewProps> = ({
                       </>
                     ) : (
                       <>
-                        <WifiOff className="w-3.5 h-3.5 text-slate-400" aria-hidden="true" />
-                        <span className="text-slate-400">Offline Sim</span>
+                        <WifiOff
+                          className={`w-3.5 h-3.5 ${
+                            preferences.offlineSimulation ? 'text-amber-400' : 'text-rose-400'
+                          }`}
+                          aria-hidden="true"
+                        />
+                        <span
+                          className={
+                            preferences.offlineSimulation ? 'text-amber-400' : 'text-rose-400'
+                          }
+                        >
+                          {preferences.offlineSimulation
+                            ? 'Disconnected (Sim)'
+                            : 'Disconnected'}
+                        </span>
                       </>
                     )}
                   </div>
